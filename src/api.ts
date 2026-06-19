@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Data layer — GraphQL client, types, queries and filter construction.
 // The scorer service exposes a single `records` query with a rich
-// `RecordFilter` (textSearch, statuses, collections, score ranges, hasBlobs).
+// `RecordFilter` (textSearch, collections, score ranges, hasBlobs).
 // ---------------------------------------------------------------------------
 
 const indexerUrl = import.meta.env.VITE_INDEXER_URL;
@@ -68,7 +68,6 @@ export type CollectionCountsResponse = {
 export type RecordFilters = {
   search: string;
   collection: string; // '' = all
-  statuses: string[]; // [] = all
   minScore: number; // 0 = no lower bound
   maxScore: number; // 100 = no upper bound
   onlyWithMedia: boolean;
@@ -77,7 +76,6 @@ export type RecordFilters = {
 export const EMPTY_FILTERS: RecordFilters = {
   search: '',
   collection: '',
-  statuses: [],
   minScore: 0,
   maxScore: 100,
   onlyWithMedia: false,
@@ -149,7 +147,6 @@ export function buildFilter(filters: RecordFilters): Record<string, unknown> {
   const search = filters.search.trim();
   if (search) out.textSearch = search;
   if (filters.collection) out.collections = [filters.collection];
-  if (filters.statuses.length) out.statuses = filters.statuses;
   if (filters.minScore > 0) out.scoreGte = filters.minScore;
   if (filters.maxScore < 100) out.scoreLte = filters.maxScore;
   if (filters.onlyWithMedia) out.hasBlobs = true;
@@ -247,10 +244,6 @@ export async function resolveHandle(did: string | null): Promise<string | null> 
 // ---------------------------------------------------------------------------
 
 const LEXICON_ACCOUNTS = ['hypercerts.org', 'certified.app', 'gainforest.earth'];
-
-// The scorer has no status enum to introspect; these are its lifecycle states.
-// The toolbar also merges in any status seen on loaded records, so it self-heals.
-export const BASE_STATUSES = ['pending', 'evaluating', 'scored', 'error'];
 
 const didByHandle = new Map<string, string | null>();
 const pdsByDid = new Map<string, string | null>();

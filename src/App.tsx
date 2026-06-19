@@ -4,7 +4,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BASE_STATUSES,
   EMPTY_FILTERS,
   GRAPHQL_URL,
   PAGE_SIZE,
@@ -96,13 +95,6 @@ export default function App() {
     });
   }, [collections, collectionCounts]);
 
-  // Status options: the known lifecycle, plus anything seen on loaded records.
-  const statuses = useMemo(() => {
-    const set = new Set<string>(BASE_STATUSES);
-    for (const r of records) if (r.currentStatus) set.add(r.currentStatus);
-    return [...set];
-  }, [records]);
-
   // Load the current page of records.
   useEffect(() => {
     const ac = new AbortController();
@@ -139,7 +131,6 @@ export default function App() {
     () =>
       searchInput !== '' ||
       filters.collection !== '' ||
-      filters.statuses.length > 0 ||
       filters.minScore > 0 ||
       filters.maxScore < 100 ||
       filters.onlyWithMedia,
@@ -158,7 +149,6 @@ export default function App() {
           onSearchInput={setSearchInput}
           filters={filters}
           setFilters={setFilters}
-          statuses={statuses}
           onReset={resetAll}
           isDirty={isDirty}
         />

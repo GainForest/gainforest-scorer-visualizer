@@ -345,7 +345,6 @@ export function Toolbar({
   onSearchInput,
   filters,
   setFilters,
-  statuses,
   onReset,
   isDirty,
 }: {
@@ -353,14 +352,11 @@ export function Toolbar({
   onSearchInput: (v: string) => void;
   filters: RecordFilters;
   setFilters: (next: Partial<RecordFilters>) => void;
-  statuses: string[];
   onReset: () => void;
   isDirty: boolean;
 }) {
-  const toggleStatus = (s: string) => {
-    const active = filters.statuses.includes(s);
-    setFilters({ statuses: active ? filters.statuses.filter((x) => x !== s) : [...filters.statuses, s] });
-  };
+  const setMinScore = (value: number) => setFilters({ minScore: Math.min(value, filters.maxScore) });
+  const setMaxScore = (value: number) => setFilters({ maxScore: Math.max(value, filters.minScore) });
 
   return (
     <div className="toolbar">
@@ -378,33 +374,38 @@ export function Toolbar({
         )}
       </div>
 
-      {statuses.length > 0 && (
-        <div className="status-chips" role="group" aria-label="Status filter">
-          {statuses.map((s) => (
-            <button
-              key={s}
-              className={filters.statuses.includes(s) ? 'chip is-on' : 'chip'}
-              onClick={() => toggleStatus(s)}
-            >
-              <span className="chip-dot" />{s}
-            </button>
-          ))}
+      <div
+        className="score-filter"
+        style={{
+          ['--range-start' as string]: `${filters.minScore}%`,
+          ['--range-end' as string]: `${filters.maxScore}%`,
+        }}
+      >
+        <label id="scoreRangeLabel">Score</label>
+        <div className="score-range" role="group" aria-labelledby="scoreRangeLabel">
+          <div className="score-range-track" aria-hidden="true" />
+          <input
+            className="score-range-input score-range-min"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={filters.minScore}
+            onChange={(e) => setMinScore(Number(e.target.value))}
+            aria-label="Minimum score"
+          />
+          <input
+            className="score-range-input score-range-max"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={filters.maxScore}
+            onChange={(e) => setMaxScore(Number(e.target.value))}
+            aria-label="Maximum score"
+          />
         </div>
-      )}
-
-      <div className="score-filter">
-        <label htmlFor="minScore">Min score</label>
-        <input
-          id="minScore"
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={filters.minScore}
-          style={{ ['--fill' as string]: `${filters.minScore}%` }}
-          onChange={(e) => setFilters({ minScore: Number(e.target.value) })}
-        />
-        <b>{filters.minScore}</b>
+        <b>{filters.minScore}–{filters.maxScore}</b>
       </div>
 
       <button
