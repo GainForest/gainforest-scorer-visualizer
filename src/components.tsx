@@ -58,7 +58,45 @@ const Icon = {
   Herbarium: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22V8M12 8c0-3 2-5 5-5 0 3-2 5-5 5ZM12 12c0-2.5-2-4.5-4.5-4.5 0 2.5 2 4.5 4.5 4.5Z" /><path d="M5 22h14" /></svg>
   ),
+  Sun: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></svg>
+  ),
+  Moon: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg>
+  ),
 };
+
+// --- theme toggle ----------------------------------------------------------
+
+const THEME_KEY = 'gf-scorer-theme';
+
+export function ThemeToggle() {
+  const [dark, setDark] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  );
+  const toggle = () => {
+    setDark((prev) => {
+      const next = !prev;
+      document.documentElement.classList.toggle('dark', next);
+      try {
+        localStorage.setItem(THEME_KEY, next ? 'dark' : 'light');
+      } catch {
+        /* storage unavailable; the in-memory toggle still works */
+      }
+      return next;
+    });
+  };
+  return (
+    <button
+      className="theme-toggle"
+      onClick={toggle}
+      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={dark ? 'Light mode' : 'Dark mode'}
+    >
+      {dark ? <Icon.Sun /> : <Icon.Moon />}
+    </button>
+  );
+}
 
 // --- creator handle --------------------------------------------------------
 
@@ -294,6 +332,7 @@ export function Masthead({
           <b>{totalCount.toLocaleString()}</b>
           <span>records</span>
         </div>
+        <ThemeToggle />
       </div>
     </header>
   );

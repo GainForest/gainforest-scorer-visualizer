@@ -144,23 +144,26 @@ export type ScoreBucket = {
   soft: string;
 };
 
-const SCORE_BUCKETS: { min: number; label: string; h: number; s: number; l: number }[] = [
-  { min: 90, label: 'Excellent', h: 152, s: 58, l: 38 },
-  { min: 75, label: 'Strong', h: 110, s: 42, l: 40 },
-  { min: 60, label: 'Fair', h: 44, s: 72, l: 44 },
-  { min: 40, label: 'Weak', h: 26, s: 78, l: 48 },
-  { min: 0, label: 'Poor', h: 8, s: 64, l: 50 },
+// oklch ramp tuned to the GainForest sage system: a calm sage at the top
+// grading down through amber to a muted terracotta, so the score reads as
+// meaningful without clashing with the white/ink surfaces.
+const SCORE_BUCKETS: { min: number; label: string; l: number; c: number; h: number }[] = [
+  { min: 90, label: 'Excellent', l: 0.5, c: 0.108, h: 157 },
+  { min: 75, label: 'Strong', l: 0.58, c: 0.11, h: 150 },
+  { min: 60, label: 'Fair', l: 0.7, c: 0.13, h: 95 },
+  { min: 40, label: 'Weak', l: 0.66, c: 0.16, h: 56 },
+  { min: 0, label: 'Poor', l: 0.62, c: 0.19, h: 28 },
 ];
 
 export function scoreBucket(score: number | null | undefined): ScoreBucket {
   if (typeof score !== 'number' || Number.isNaN(score)) {
-    return { label: 'Unscored', color: 'hsl(40 6% 55%)', soft: 'hsl(40 8% 92%)' };
+    return { label: 'Unscored', color: 'oklch(0.7 0.01 264)', soft: 'oklch(0.97 0.003 264)' };
   }
   const b = SCORE_BUCKETS.find((x) => score >= x.min) ?? SCORE_BUCKETS[SCORE_BUCKETS.length - 1];
   return {
     label: b.label,
-    color: `hsl(${b.h} ${b.s}% ${b.l}%)`,
-    soft: `hsl(${b.h} ${b.s}% 94%)`,
+    color: `oklch(${b.l} ${b.c} ${b.h})`,
+    soft: `oklch(${b.l} ${b.c} ${b.h} / 0.12)`,
   };
 }
 
