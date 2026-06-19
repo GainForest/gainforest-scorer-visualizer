@@ -4,9 +4,13 @@
 // `RecordFilter` (textSearch, statuses, collections, score ranges, hasBlobs).
 // ---------------------------------------------------------------------------
 
-export const GRAPHQL_URL =
-  import.meta.env.VITE_GRAPHQL_URL ??
-  'https://subarid-diapasonal-bibi.ngrok-free.dev/graphql';
+const indexerUrl = import.meta.env.VITE_INDEXER_URL;
+
+if (!indexerUrl) {
+  throw new Error('Missing VITE_INDEXER_URL environment variable');
+}
+
+export const GRAPHQL_URL = indexerUrl;
 
 export const PAGE_SIZE = 24;
 
