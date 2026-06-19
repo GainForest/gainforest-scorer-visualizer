@@ -56,6 +56,15 @@ export type RecordsResponse = {
   };
 };
 
+export type CollectionCount = {
+  collection: string;
+  count: number;
+};
+
+export type CollectionCountsResponse = {
+  collectionCounts: CollectionCount[];
+};
+
 export type RecordFilters = {
   search: string;
   collection: string; // '' = all
@@ -165,6 +174,20 @@ export async function fetchRecords(
     nodes: data.records.nodes ?? [],
     totalCount: data.records.totalCount ?? 0,
   };
+}
+
+export async function fetchCollectionCounts(signal?: AbortSignal): Promise<CollectionCount[]> {
+  const data = await graphql<CollectionCountsResponse>(
+    `query CollectionCounts {
+      collectionCounts {
+        collection
+        count
+      }
+    }`,
+    undefined,
+    signal,
+  );
+  return data.collectionCounts ?? [];
 }
 
 // ---------------------------------------------------------------------------

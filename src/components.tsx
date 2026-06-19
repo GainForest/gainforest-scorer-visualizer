@@ -426,10 +426,12 @@ export function Toolbar({
 
 export function CollectionTabs({
   collections,
+  collectionCounts,
   active,
   onSelect,
 }: {
   collections: string[];
+  collectionCounts: Record<string, number>;
   active: string;
   onSelect: (collection: string) => void;
 }) {
@@ -455,18 +457,23 @@ export function CollectionTabs({
           All
           <span className="coltab-n">{collections.length}</span>
         </button>
-        {shown.map((c) => (
-          <button
-            key={c}
-            className={active === c ? 'coltab is-on' : 'coltab'}
-            onClick={() => onSelect(c)}
-            title={c}
-            role="tab"
-            aria-selected={active === c}
-          >
-            {collectionLabel(c)}
-          </button>
-        ))}
+        {shown.map((c) => {
+          const count = collectionCounts[c];
+          const countLabel = typeof count === 'number' ? count.toLocaleString() : null;
+          return (
+            <button
+              key={c}
+              className={active === c ? 'coltab is-on' : 'coltab'}
+              onClick={() => onSelect(c)}
+              title={countLabel ? `${c} · ${countLabel} indexed records` : c}
+              role="tab"
+              aria-selected={active === c}
+            >
+              {collectionLabel(c)}
+              {countLabel && <span className="coltab-n">{countLabel}</span>}
+            </button>
+          );
+        })}
         {q && filtered.length === 0 && <span className="coltabs-empty">no match for “{query}”</span>}
       </div>
 

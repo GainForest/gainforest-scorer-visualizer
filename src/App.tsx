@@ -8,6 +8,7 @@ import {
   EMPTY_FILTERS,
   GRAPHQL_URL,
   PAGE_SIZE,
+  fetchCollectionCounts,
   fetchCollections,
   fetchRecords,
   type RecordFilters,
@@ -37,6 +38,7 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [collections, setCollections] = useState<string[]>([]);
+  const [collectionCounts, setCollectionCounts] = useState<Record<string, number>>({});
   const [active, setActive] = useState<RecordNode | null>(null);
 
   // Debounce the free-text search into the committed filter state.
@@ -61,13 +63,38 @@ export default function App() {
   }, []);
 
   // Load the authoritative collection list (from published lexicon schemas) once.
+  // Counts come from the indexer and only include indexed collections, so both
+  // sources are intentionally kept and merged for the tab bar.
   useEffect(() => {
     const ac = new AbortController();
     fetchCollections(ac.signal)
       .then(setCollections)
-      .catch(() => {/* best-effort; the dropdown degrades to "All collections" */});
+      .catch(() => {/* best-effort; the tabs degrade to "All collections" */});
+    fetchCollectionCounts(ac.signal)
+      .then((counts) => {
+        const next: Record<string, number> = {};
+        for (const { collection, count } of counts) next[collection] = count;
+        setCollectionCounts(next);
+      })
+      .catch(() => {/* best-effort; tabs still render without indexed counts */});
     return () => ac.abort();
   }, []);
+
+  const orderedCollections = useMemo(() => {
+    const all = new Set(collections);
+    for (const collection of Object.keys(collectionCounts)) all.add(collection);
+
+    return [...all].sort((a, b) => {
+      const aCount = collectionCounts[a];
+      const bCount = collectionCounts[b];
+      const aHasCount = typeof aCount === 'number';
+      const bHasCount = typeof bCount === 'number';
+
+      if (aHasCount && bHasCount && aCount !== bCount) return bCount - aCount;
+      if (aHasCount !== bHasCount) return aHasCount ? -1 : 1;
+      return a.localeCompare(b);
+    });
+  }, [collections, collectionCounts]);
 
   // Status options: the known lifecycle, plus anything seen on loaded records.
   const statuses = useMemo(() => {
@@ -135,9 +162,10 @@ export default function App() {
           onReset={resetAll}
           isDirty={isDirty}
         />
-        {collections.length > 0 && (
+        {orderedCollections.length > 0 && (
           <CollectionTabs
-            collections={collections}
+            collections={orderedCollections}
+            collectionCounts={collectionCounts}
             active={filters.collection}
             onSelect={(c) => setFilters({ collection: c })}
           />
