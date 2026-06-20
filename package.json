@@ -10,12 +10,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "leaflet": "^1.9.4",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",
     "vite": "latest"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.21",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3"
   }

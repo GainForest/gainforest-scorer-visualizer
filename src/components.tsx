@@ -2,13 +2,19 @@
 // Presentational components for the herbarium specimen archive.
 // ---------------------------------------------------------------------------
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { RecordNode, RecordFilters } from './api';
 import { peekHandle, resolveHandle } from './api';
 import {
+  blobKindLabel,
+  blobUrl,
+  buildBlobPreview,
+  classifyBlob,
+  type BlobPreviewSource,
+} from './blobPreview';
+import {
   collectionLabel,
   extractSpecimen,
-  findImageUrl,
   formatDate,
   formatRelative,
   formatBytes,
@@ -178,6 +184,167 @@ export function IucnBadge({ code }: { code: string | null }) {
   );
 }
 
+// --- blob thumbnails -------------------------------------------------------
+
+function makePointFeature(point: { lat: number; lon: number }) {
+  return {
+    type: 'Feature' as const,
+    properties: {},
+    geometry: { type: 'Point' as const, coordinates: [point.lon, point.lat] },
+  };
+}
+
+function GeoJsonMapPreview({ source, compact = false }: { source: BlobPreviewSource; compact?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<{ remove: () => void; invalidateSize: () => void } | null>(null);
+  const [geoJson, setGeoJson] = useState<unknown | null>(() => source.geoJson ?? (source.point ? makePointFeature(source.point) : null));
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    setGeoJson(source.geoJson ?? (source.point ? makePointFeature(source.point) : null));
+    if (!source.geoJson && !source.point && source.url) {
+      fetch(source.url)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((json) => { if (alive) setGeoJson(json); })
+        .catch(() => { if (alive) setFailed(true); });
+    }
+    return () => { alive = false; };
+  }, [source.geoJson, source.point, source.url]);
+
+  useEffect(() => {
+    if (!ref.current || !geoJson) return;
+    let cancelled = false;
+    let map: { remove: () => void; invalidateSize: () => void } | null = null;
+
+    import('leaflet').then(({ default: L }) => {
+      if (cancelled || !ref.current) return;
+      mapRef.current?.remove();
+      const next = L.map(ref.current, {
+        zoomControl: !compact,
+        attributionControl: false,
+        dragging: !compact,
+        scrollWheelZoom: false,
+        doubleClickZoom: !compact,
+        boxZoom: !compact,
+        keyboard: !compact,
+      }).setView([0, 0], 1);
+      map = next;
+      mapRef.current = next;
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        className: 'leaflet-muted-tiles',
+      }).addTo(next);
+
+      const layer = L.geoJSON(geoJson as GeoJSON.GeoJsonObject, {
+        style: () => ({ color: 'var(--primary)', weight: compact ? 2 : 3, opacity: 0.9, fillOpacity: 0.24 }),
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+          radius: compact ? 6 : 8,
+          color: 'var(--primary)',
+          weight: 2,
+          fillColor: 'var(--primary)',
+          fillOpacity: 0.9,
+        }),
+      }).addTo(next);
+
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) {
+        next.fitBounds(bounds.pad(compact ? 0.65 : 0.25), { maxZoom: compact ? 8 : 12, animate: false });
+      } else if (source.point) {
+        next.setView([source.point.lat, source.point.lon], compact ? 7 : 10);
+      }
+      setTimeout(() => next.invalidateSize(), 0);
+    }).catch(() => setFailed(true));
+
+    return () => {
+      cancelled = true;
+      map?.remove();
+      if (mapRef.current === map) mapRef.current = null;
+    };
+  }, [compact, geoJson, source.point]);
+
+  if (failed) {
+    return <BlobFallback source={source} note="Could not load map" />;
+  }
+
+  return (
+    <div className="map-preview">
+      {!geoJson && <div className="map-loading">Loading map…</div>}
+      <div ref={ref} className="map-canvas" aria-label="GeoJSON map preview" />
+    </div>
+  );
+}
+
+function TextBlobPreview({ source }: { source: BlobPreviewSource }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setText(null);
+    if (!source.url) return () => { alive = false; };
+    fetch(source.url)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((body) => { if (alive) setText(body.slice(0, 900)); })
+      .catch(() => { if (alive) setText(''); });
+    return () => { alive = false; };
+  }, [source.url]);
+
+  const sample = text && source.kind === 'json'
+    ? (() => {
+        try { return JSON.stringify(JSON.parse(text), null, 2).slice(0, 900); }
+        catch { return text; }
+      })()
+    : text;
+
+  return (
+    <div className={`text-preview text-preview-${source.kind}`}>
+      <div className="text-preview-head">
+        <span>{blobKindLabel(source.kind)}</span>
+        <code>{source.mimeType ?? 'text'}</code>
+      </div>
+      <pre>{sample || source.detail || 'Preview unavailable'}</pre>
+    </div>
+  );
+}
+
+function BlobFallback({ source, note }: { source: BlobPreviewSource; note?: string }) {
+  return (
+    <div className={`blob-fallback blob-fallback-${source.kind}`}>
+      <div className="blob-glyph" aria-hidden="true">{source.kind === 'archive' ? 'zip' : source.kind}</div>
+      <div>
+        <strong>{source.label}</strong>
+        <span>{note ?? source.detail ?? source.mimeType ?? 'Blob'}</span>
+      </div>
+    </div>
+  );
+}
+
+function BlobThumbnail({ source, title, onImageError, compact = true }: { source: BlobPreviewSource; title: string; onImageError?: () => void; compact?: boolean }) {
+  const meta = [source.label, source.mimeType, formatBytes(source.sizeBytes)].filter((v) => v && v !== '—').join(' · ');
+
+  return (
+    <div className={`specimen-plate specimen-plate-${source.kind}`} title={meta || source.label}>
+      {source.kind === 'image' && source.url ? (
+        <img src={source.url} alt={title} loading="lazy" onError={onImageError} />
+      ) : source.kind === 'geojson' ? (
+        <GeoJsonMapPreview source={source} compact={compact} />
+      ) : source.kind === 'video' && source.url ? (
+        <video src={source.url} preload="metadata" muted playsInline aria-label={`${title} video preview`} />
+      ) : source.kind === 'audio' && source.url && !compact ? (
+        <div className="audio-preview"><BlobFallback source={source} /><audio src={source.url} controls preload="metadata" /></div>
+      ) : ['json', 'text', 'csv'].includes(source.kind) ? (
+        <TextBlobPreview source={source} />
+      ) : source.kind === 'pdf' && source.url && !compact ? (
+        <iframe className="pdf-preview" src={source.url} title={`${title} PDF preview`} />
+      ) : (
+        <BlobFallback source={source} />
+      )}
+      <span className="blob-kind-pill">{source.label}</span>
+    </div>
+  );
+}
+
 // --- specimen card ---------------------------------------------------------
 
 export function SpecimenCard({ record, index, onOpen }: { record: RecordNode; index: number; onOpen: (r: RecordNode) => void }) {
@@ -185,7 +352,7 @@ export function SpecimenCard({ record, index, onOpen }: { record: RecordNode; in
   const parsed = parseJson(record.recordJson);
   const specimen = extractSpecimen(record, parsed);
   const bucket = scoreBucket(record.lastEvaluationScore);
-  const image = !imgFailed ? findImageUrl(parsed) : null;
+  const preview = useMemo(() => buildBlobPreview(record, parsed, { includeImage: !imgFailed }), [record, parsed, imgFailed]);
   const comment = record.aiComment ?? record.blobs?.find((b) => b.aiComment)?.aiComment ?? null;
   const labels = (record.aiLabels ?? []).slice(0, 4);
 
@@ -203,11 +370,7 @@ export function SpecimenCard({ record, index, onOpen }: { record: RecordNode; in
         }
       }}
     >
-      {image && (
-        <div className="specimen-plate">
-          <img src={image} alt={specimen.title} loading="lazy" onError={() => setImgFailed(true)} />
-        </div>
-      )}
+      {preview && <BlobThumbnail source={preview} title={specimen.title} onImageError={() => setImgFailed(true)} />}
 
       <div className="specimen-body">
         <div className="specimen-head">
@@ -573,7 +736,7 @@ export function RecordDrawer({ record, onClose }: { record: RecordNode; onClose:
   const parsed = parseJson(record.recordJson);
   const specimen = extractSpecimen(record, parsed);
   const bucket = scoreBucket(record.lastEvaluationScore);
-  const image = findImageUrl(parsed);
+  const primaryPreview = useMemo(() => buildBlobPreview(record, parsed), [record, parsed]);
   const comment = record.aiComment ?? record.blobs?.find((b) => b.aiComment)?.aiComment ?? null;
 
   useEffect(() => {
@@ -610,7 +773,7 @@ export function RecordDrawer({ record, onClose }: { record: RecordNode; onClose:
         </div>
 
         <div className="drawer-body">
-          {image && <img className="drawer-plate" src={image} alt={specimen.title} loading="lazy" />}
+          {primaryPreview && <BlobThumbnail source={primaryPreview} title={specimen.title} compact={false} />}
 
           {(comment || record.aiModel) && (
             <section className="drawer-section">
@@ -661,13 +824,28 @@ export function RecordDrawer({ record, onClose }: { record: RecordNode; onClose:
           {(record.blobs?.length ?? 0) > 0 && (
             <section className="drawer-section">
               <h4>Blobs · {record.blobs!.length}</h4>
-              {record.blobs!.map((b) => (
-                <div className="blob-row" key={b.id} style={{ ['--accent' as string]: scoreBucket(b.lastEvaluationScore).color }}>
-                  <span className="mime">{b.mimeType ?? 'unknown'}</span>
-                  <span className="size">{formatBytes(b.sizeBytes)}</span>
-                  {typeof b.lastEvaluationScore === 'number' && <span className="blob-score">{scoreText(b.lastEvaluationScore)}</span>}
-                </div>
-              ))}
+              {record.blobs!.map((b) => {
+                const kind = classifyBlob(b.mimeType);
+                const source: BlobPreviewSource = {
+                  kind,
+                  label: blobKindLabel(kind),
+                  detail: b.mimeType,
+                  mimeType: b.mimeType,
+                  sizeBytes: b.sizeBytes,
+                  url: blobUrl(record, b),
+                  blob: b,
+                };
+                return (
+                  <div className="blob-row" key={b.id} style={{ ['--accent' as string]: scoreBucket(b.lastEvaluationScore).color }}>
+                    <BlobThumbnail source={source} title={`${specimen.title} ${blobKindLabel(kind)}`} />
+                    <div className="blob-row-meta">
+                      <span className="mime">{b.mimeType ?? 'unknown'}</span>
+                      <span className="size">{formatBytes(b.sizeBytes)}</span>
+                    </div>
+                    {typeof b.lastEvaluationScore === 'number' && <span className="blob-score">{scoreText(b.lastEvaluationScore)}</span>}
+                  </div>
+                );
+              })}
             </section>
           )}
 
