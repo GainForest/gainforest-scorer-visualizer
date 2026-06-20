@@ -366,6 +366,18 @@ function BlobThumbnail({ source, title, onImageError, compact = true }: { source
   );
 }
 
+function NoThumbnailPlaceholder() {
+  return (
+    <div className="specimen-plate specimen-plate-empty" aria-label="No thumbnail available">
+      <div className="empty-thumb-mark" aria-hidden="true"><Icon.Herbarium /></div>
+      <div>
+        <strong>No thumbnail</strong>
+        <span>No previewable blob found</span>
+      </div>
+    </div>
+  );
+}
+
 // --- specimen card ---------------------------------------------------------
 
 export function SpecimenCard({ record, index, onOpen }: { record: RecordNode; index: number; onOpen: (r: RecordNode) => void }) {
@@ -391,7 +403,11 @@ export function SpecimenCard({ record, index, onOpen }: { record: RecordNode; in
         }
       }}
     >
-      {preview && <BlobThumbnail source={preview} title={specimen.title} onImageError={() => setImgFailed(true)} />}
+      {preview ? (
+        <BlobThumbnail source={preview} title={specimen.title} onImageError={() => setImgFailed(true)} />
+      ) : (
+        <NoThumbnailPlaceholder />
+      )}
 
       <div className="specimen-body">
         <div className="specimen-head">

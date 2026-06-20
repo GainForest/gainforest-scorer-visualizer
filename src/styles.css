@@ -524,6 +524,47 @@ a { color: inherit; }
 .specimen-plate iframe { width: 100%; height: 100%; object-fit: cover; display: block; border: 0; }
 .specimen-plate img { transition: transform 0.5s ease; }
 .specimen:hover .specimen-plate img { transform: scale(1.04); }
+.specimen-plate-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), transparent 42%),
+    repeating-linear-gradient(-45deg, transparent 0 12px, color-mix(in srgb, var(--foreground) 4%, transparent) 12px 13px),
+    var(--secondary);
+  color: var(--muted-foreground);
+}
+.empty-thumb-mark {
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 38%, var(--border));
+  background: color-mix(in srgb, var(--card) 66%, transparent);
+  color: color-mix(in srgb, var(--primary) 72%, var(--muted-foreground));
+}
+.empty-thumb-mark svg { width: 27px; height: 27px; }
+.specimen-plate-empty strong {
+  display: block;
+  font-family: var(--instrument);
+  font-weight: 400;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--foreground);
+}
+.specimen-plate-empty span {
+  display: block;
+  margin-top: 0.28rem;
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .blob-kind-pill {
   position: absolute;
   left: 0.72rem;
