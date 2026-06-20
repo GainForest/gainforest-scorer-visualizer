@@ -629,14 +629,17 @@ export function CollectionTabs({
   collections,
   collectionCounts,
   active,
+  query,
+  onQuery,
   onSelect,
 }: {
   collections: string[];
   collectionCounts: Record<string, number>;
   active: string;
+  query: string;
+  onQuery: (query: string) => void;
   onSelect: (collection: string) => void;
 }) {
-  const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const filtered = q
     ? collections.filter(
@@ -682,12 +685,12 @@ export function CollectionTabs({
         <Icon.Search />
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQuery(e.target.value)}
           placeholder="Filter collections"
           aria-label="Filter collections"
         />
         {query && (
-          <button className="search-clear" onClick={() => setQuery('')} aria-label="Clear collection filter">
+          <button className="search-clear" onClick={() => onQuery('')} aria-label="Clear collection filter">
             <Icon.X />
           </button>
         )}
