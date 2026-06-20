@@ -27,6 +27,7 @@ export type BlobPreviewSource = {
   mimeType: string | null;
   sizeBytes: number | null;
   url: string | null;
+  did: string | null;
   blob: BlobData | null;
   geoJson?: unknown;
   point?: GeoPoint;
@@ -178,12 +179,63 @@ export function classifyBlob(mimeType: string | null | undefined): BlobKind {
   return 'binary';
 }
 
-export function blobUrl(record: RecordNode, blob: BlobData | null | undefined): string | null {
-  if (!blob?.cid || !record.did) return null;
-  const url = new URL('https://public.api.bsky.app/xrpc/com.atproto.sync.getBlob');
-  url.searchParams.set('did', record.did);
-  url.searchParams.set('cid', blob.cid);
+function pdsBlobUrl(pds: string, did: string, cid: string): string {
+  const url = new URL('/xrpc/com.atproto.sync.getBlob', pds.endsWith('/') ? pds : `${pds}/`);
+  url.searchParams.set('did', did);
+  url.searchParams.set('cid', cid);
   return url.toString();
+}
+
+export function blobUrl(record: RecordNode, blob: BlobData | null | undefined, pds?: string | null): string | null {
+  if (!blob?.cid || !record.did || !pds) return null;
+  return pdsBlobUrl(pds, record.did, blob.cid);
+}
+
+const pdsCache = new Map<string, string | null>();
+const pdsInflight = new Map<string, Promise<string | null>>();
+
+function didWebDocumentUrl(did: string): string | null {
+  if (!did.startsWith('did:web:')) return null;
+  const parts = did.slice('did:web:'.length).split(':').map(decodeURIComponent);
+  const host = parts.shift();
+  if (!host) return null;
+  const path = parts.length ? `/${parts.join('/')}/did.json` : '/.well-known/did.json';
+  return `https://${host}${path}`;
+}
+
+async function resolvePds(did: string, signal?: AbortSignal): Promise<string | null> {
+  if (pdsCache.has(did)) return pdsCache.get(did)!;
+  if (pdsInflight.has(did)) return pdsInflight.get(did)!;
+
+  const job = (async () => {
+    try {
+      const didDocUrl = didWebDocumentUrl(did) ?? `https://plc.directory/${encodeURIComponent(did)}`;
+      const res = await fetch(didDocUrl, { signal });
+      if (!res.ok) throw new Error(String(res.status));
+      const doc: { service?: { id?: string; type?: string; serviceEndpoint?: string }[] } = await res.json();
+      const svc = (doc.service ?? []).find(
+        (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer',
+      );
+      const pds = svc?.serviceEndpoint ?? null;
+      pdsCache.set(did, pds);
+      return pds;
+    } catch {
+      if (!signal?.aborted) pdsCache.set(did, null);
+      return null;
+    } finally {
+      pdsInflight.delete(did);
+    }
+  })();
+
+  pdsInflight.set(did, job);
+  return job;
+}
+
+export async function resolveBlobUrl(source: BlobPreviewSource, signal?: AbortSignal): Promise<string | null> {
+  if (source.url) return source.url;
+  if (!source.did || !source.blob?.cid) return null;
+  const pds = await resolvePds(source.did, signal);
+  return pds ? pdsBlobUrl(pds, source.did, source.blob.cid) : null;
 }
 
 function preferredBlob(blobs: BlobData[]): BlobData | null {
@@ -208,6 +260,7 @@ export function buildBlobPreview(record: RecordNode, parsed: unknown, options: {
         mimeType: 'image/*',
         sizeBytes: null,
         url: image,
+        did: record.did,
         blob: null,
       };
     }
@@ -224,6 +277,7 @@ export function buildBlobPreview(record: RecordNode, parsed: unknown, options: {
       mimeType: blob.mimeType,
       sizeBytes: blob.sizeBytes,
       url: blobUrl(record, blob),
+      did: record.did,
       blob,
     };
   }
@@ -237,6 +291,7 @@ export function buildBlobPreview(record: RecordNode, parsed: unknown, options: {
       mimeType: 'application/geo+json',
       sizeBytes: null,
       url: null,
+      did: record.did,
       blob: null,
       geoJson,
     };
@@ -251,6 +306,7 @@ export function buildBlobPreview(record: RecordNode, parsed: unknown, options: {
       mimeType: 'application/geo+json',
       sizeBytes: null,
       url: null,
+      did: record.did,
       blob: null,
       point,
     };

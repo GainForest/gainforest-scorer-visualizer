@@ -10,6 +10,7 @@ import {
   blobUrl,
   buildBlobPreview,
   classifyBlob,
+  resolveBlobUrl,
   type BlobPreviewSource,
 } from './blobPreview';
 import {
@@ -321,24 +322,38 @@ function BlobFallback({ source, note }: { source: BlobPreviewSource; note?: stri
 }
 
 function BlobThumbnail({ source, title, onImageError, compact = true }: { source: BlobPreviewSource; title: string; onImageError?: () => void; compact?: boolean }) {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(source.url);
   const meta = [source.label, source.mimeType, formatBytes(source.sizeBytes)].filter((v) => v && v !== '—').join(' · ');
+
+  useEffect(() => {
+    const ac = new AbortController();
+    setResolvedUrl(source.url);
+    if (!source.url && source.blob?.cid && source.did) {
+      resolveBlobUrl(source, ac.signal).then((url) => {
+        if (!ac.signal.aborted) setResolvedUrl(url);
+      });
+    }
+    return () => ac.abort();
+  }, [source]);
+
+  const resolvedSource = resolvedUrl === source.url ? source : { ...source, url: resolvedUrl };
 
   return (
     <div className={`specimen-plate specimen-plate-${source.kind}`} title={meta || source.label}>
-      {source.kind === 'image' && source.url ? (
-        <img src={source.url} alt={title} loading="lazy" onError={onImageError} />
+      {source.kind === 'image' && resolvedUrl ? (
+        <img src={resolvedUrl} alt={title} loading="lazy" onError={onImageError} />
       ) : source.kind === 'geojson' ? (
-        <GeoJsonMapPreview source={source} compact={compact} />
-      ) : source.kind === 'video' && source.url ? (
-        <video src={source.url} preload="metadata" muted playsInline aria-label={`${title} video preview`} />
-      ) : source.kind === 'audio' && source.url && !compact ? (
-        <div className="audio-preview"><BlobFallback source={source} /><audio src={source.url} controls preload="metadata" /></div>
+        <GeoJsonMapPreview source={resolvedSource} compact={compact} />
+      ) : source.kind === 'video' && resolvedUrl ? (
+        <video src={resolvedUrl} preload="metadata" muted playsInline aria-label={`${title} video preview`} />
+      ) : source.kind === 'audio' && resolvedUrl && !compact ? (
+        <div className="audio-preview"><BlobFallback source={resolvedSource} /><audio src={resolvedUrl} controls preload="metadata" /></div>
       ) : ['json', 'text', 'csv'].includes(source.kind) ? (
-        <TextBlobPreview source={source} />
-      ) : source.kind === 'pdf' && source.url && !compact ? (
-        <iframe className="pdf-preview" src={source.url} title={`${title} PDF preview`} />
+        <TextBlobPreview source={resolvedSource} />
+      ) : source.kind === 'pdf' && resolvedUrl && !compact ? (
+        <iframe className="pdf-preview" src={resolvedUrl} title={`${title} PDF preview`} />
       ) : (
-        <BlobFallback source={source} />
+        <BlobFallback source={resolvedSource} note={!resolvedUrl && source.blob?.cid ? 'Resolving blob…' : undefined} />
       )}
       <span className="blob-kind-pill">{source.label}</span>
     </div>
@@ -833,6 +848,7 @@ export function RecordDrawer({ record, onClose }: { record: RecordNode; onClose:
                   mimeType: b.mimeType,
                   sizeBytes: b.sizeBytes,
                   url: blobUrl(record, b),
+                  did: record.did,
                   blob: b,
                 };
                 return (
