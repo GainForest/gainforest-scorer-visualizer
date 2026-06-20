@@ -13,6 +13,9 @@ if (!indexerUrl) {
 export const GRAPHQL_URL = indexerUrl;
 
 export const PAGE_SIZE = 24;
+const SEARCH_PAGE_SIZE = 500;
+
+let serverTextSearchUnavailable = false;
 
 export type BlobData = {
   aiComment: string | null;
@@ -130,22 +133,41 @@ export async function graphql<T>(
     signal,
   });
 
-  if (!response.ok) {
-    throw new Error(`Request failed — the scorer service returned ${response.status}.`);
+  const text = await response.text();
+  let payload: { data?: T; errors?: { message: string }[] } | null = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    /* non-JSON error response */
   }
 
-  const payload = await response.json();
-  if (payload.errors?.length) {
-    throw new Error(payload.errors.map((e: { message: string }) => e.message).join('\n'));
+  const graphqlError = payload?.errors?.length
+    ? payload.errors.map((e) => e.message).join('\n')
+    : null;
+
+  if (!response.ok) {
+    throw new Error(
+      graphqlError
+        ? `Request failed — the scorer service returned ${response.status}: ${graphqlError}`
+        : `Request failed — the scorer service returned ${response.status}.`,
+    );
   }
-  return payload.data as T;
+
+  if (graphqlError) {
+    throw new Error(graphqlError);
+  }
+  return payload?.data as T;
 }
 
 /** Translate the UI filter state into a `RecordFilter` input object. */
-export function buildFilter(filters: RecordFilters): Record<string, unknown> {
+export function buildFilter(
+  filters: RecordFilters,
+  options: { includeSearch?: boolean } = {},
+): Record<string, unknown> {
+  const { includeSearch = true } = options;
   const out: Record<string, unknown> = {};
   const search = filters.search.trim();
-  if (search) out.textSearch = search;
+  if (includeSearch && search) out.textSearch = search;
   if (filters.collection) out.collections = [filters.collection];
   if (filters.minScore > 0) out.scoreGte = filters.minScore;
   if (filters.maxScore < 100) out.scoreLte = filters.maxScore;
@@ -153,8 +175,48 @@ export function buildFilter(filters: RecordFilters): Record<string, unknown> {
   return out;
 }
 
-export async function fetchRecords(
-  filters: RecordFilters,
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+function searchHaystack(record: RecordNode): string {
+  return [
+    record.id,
+    record.uri,
+    record.cid,
+    record.did,
+    record.rkey,
+    record.collection,
+    record.currentStatus,
+    record.errorMessage,
+    record.aiComment,
+    record.aiLabels?.join(' '),
+    record.aiModel,
+    record.recordJson,
+    ...(record.blobs ?? []).flatMap((blob) => [
+      blob.id,
+      blob.cid,
+      blob.mimeType,
+      blob.aiComment,
+      blob.lastEvaluationScore?.toString(),
+      blob.sizeBytes?.toString(),
+    ]),
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+}
+
+function recordMatchesSearch(record: RecordNode, search: string): boolean {
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const haystack = searchHaystack(record);
+  return terms.every((term) => haystack.includes(term));
+}
+
+async function queryRecords(
+  filter: Record<string, unknown>,
+  limit: number,
   offset: number,
   signal?: AbortSignal,
 ): Promise<{ nodes: RecordNode[]; totalCount: number }> {
@@ -164,13 +226,72 @@ export async function fetchRecords(
         ${RECORD_FIELDS}
       }
     }`,
-    { filter: buildFilter(filters), limit: PAGE_SIZE, offset },
+    { filter, limit, offset },
     signal,
   );
   return {
     nodes: data.records.nodes ?? [],
     totalCount: data.records.totalCount ?? 0,
   };
+}
+
+async function fetchRecordsWithClientSearch(
+  filters: RecordFilters,
+  offset: number,
+  signal?: AbortSignal,
+): Promise<{ nodes: RecordNode[]; totalCount: number }> {
+  const search = filters.search.trim();
+  const filter = buildFilter(filters, { includeSearch: false });
+  const matches: RecordNode[] = [];
+
+  let scanned = 0;
+  let totalToScan: number | null = null;
+
+  while (totalToScan === null || scanned < totalToScan) {
+    const { nodes, totalCount } = await queryRecords(filter, SEARCH_PAGE_SIZE, scanned, signal);
+    totalToScan = totalCount;
+    if (!nodes.length) break;
+
+    for (const node of nodes) {
+      if (recordMatchesSearch(node, search)) matches.push(node);
+    }
+    scanned += nodes.length;
+
+    // Once we have one more match than the visible page needs, return promptly.
+    // The scorer's server-side `textSearch` currently returns 400, and scanning
+    // every record before rendering makes common searches feel broken.
+    if (matches.length > offset + PAGE_SIZE) break;
+  }
+
+  const scannedAll = totalToScan !== null && scanned >= totalToScan;
+  return {
+    nodes: matches.slice(offset, offset + PAGE_SIZE),
+    totalCount: scannedAll ? matches.length : Math.max(matches.length, offset + PAGE_SIZE + 1),
+  };
+}
+
+export async function fetchRecords(
+  filters: RecordFilters,
+  offset: number,
+  signal?: AbortSignal,
+): Promise<{ nodes: RecordNode[]; totalCount: number }> {
+  const search = filters.search.trim();
+  const canUseServerSearch = search && !serverTextSearchUnavailable;
+
+  if (canUseServerSearch) {
+    try {
+      return await queryRecords(buildFilter(filters), PAGE_SIZE, offset, signal);
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      if (err instanceof Error && /syntax error|400/.test(err.message)) {
+        serverTextSearchUnavailable = true;
+      }
+      return fetchRecordsWithClientSearch(filters, offset, signal);
+    }
+  }
+
+  if (search) return fetchRecordsWithClientSearch(filters, offset, signal);
+  return queryRecords(buildFilter(filters), PAGE_SIZE, offset, signal);
 }
 
 export async function fetchCollectionCounts(signal?: AbortSignal): Promise<CollectionCount[]> {
