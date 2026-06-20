@@ -194,6 +194,58 @@ export function classifyBlob(mimeType: string | null | undefined): BlobKind {
   return 'binary';
 }
 
+function cidFromRef(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  const obj = asRecord(value);
+  return typeof obj?.['$link'] === 'string' && obj.$link.trim() ? obj.$link.trim() : null;
+}
+
+function blobFromRecord(obj: Record<string, unknown>): BlobData | null {
+  const cid = cidFromRef(obj.ref) ?? cidFromRef(obj.cid);
+  const mimeType = typeof obj.mimeType === 'string' && obj.mimeType.trim() ? obj.mimeType.trim() : null;
+  const size = numeric(obj.sizeBytes) ?? numeric(obj.size);
+  const looksLikeBlob = obj.$type === 'blob' || (cid && mimeType);
+  if (!looksLikeBlob || !cid) return null;
+
+  return {
+    aiComment: null,
+    cid,
+    id: `embedded:${cid}`,
+    lastEvaluationScore: null,
+    mimeType,
+    sizeBytes: size,
+  };
+}
+
+function findEmbeddedBlobs(value: unknown, depth = 0, seen = new Set<string>()): BlobData[] {
+  if (!value || depth > 10) return [];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return [];
+    try {
+      return findEmbeddedBlobs(JSON.parse(trimmed), depth + 1, seen);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) return value.flatMap((item) => findEmbeddedBlobs(item, depth + 1, seen));
+
+  const obj = asRecord(value);
+  if (!obj) return [];
+
+  const blobs: BlobData[] = [];
+  const direct = blobFromRecord(obj);
+  if (direct?.cid && !seen.has(direct.cid)) {
+    seen.add(direct.cid);
+    blobs.push(direct);
+  }
+
+  for (const item of Object.values(obj)) {
+    blobs.push(...findEmbeddedBlobs(item, depth + 1, seen));
+  }
+  return blobs;
+}
+
 function pdsBlobUrl(pds: string, did: string, cid: string): string {
   const url = new URL('/xrpc/com.atproto.sync.getBlob', pds.endsWith('/') ? pds : `${pds}/`);
   url.searchParams.set('did', did);
@@ -281,7 +333,10 @@ export function buildBlobPreview(record: RecordNode, parsed: unknown, options: {
     }
   }
 
-  const blobs = record.blobs ?? [];
+  const indexedBlobs = record.blobs ?? [];
+  const indexedCids = new Set(indexedBlobs.map((b) => b.cid).filter(Boolean));
+  const embeddedBlobs = findEmbeddedBlobs(parsed).filter((b) => !indexedCids.has(b.cid));
+  const blobs = [...indexedBlobs, ...embeddedBlobs];
   const blob = preferredBlob(blobs);
   if (blob) {
     const kind = classifyBlob(blob.mimeType);
