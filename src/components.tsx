@@ -10,6 +10,7 @@ import {
   blobUrl,
   buildBlobPreview,
   classifyBlob,
+  parseCoordinateText,
   resolveBlobUrl,
   type BlobPreviewSource,
 } from './blobPreview';
@@ -291,12 +292,17 @@ function TextBlobPreview({ source }: { source: BlobPreviewSource }) {
     return () => { alive = false; };
   }, [source.url]);
 
+  const point = text && source.kind === 'text' ? parseCoordinateText(text) : null;
   const sample = text && source.kind === 'json'
     ? (() => {
         try { return JSON.stringify(JSON.parse(text), null, 2).slice(0, 900); }
         catch { return text; }
       })()
     : text;
+
+  if (point) {
+    return <GeoJsonMapPreview source={{ ...source, kind: 'geojson', label: 'Map', point }} compact />;
+  }
 
   return (
     <div className={`text-preview text-preview-${source.kind}`}>

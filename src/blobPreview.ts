@@ -123,9 +123,24 @@ export function findGeoJson(value: unknown, depth = 0): unknown | null {
   return null;
 }
 
+export function parseCoordinateText(value: string): GeoPoint | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*,\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*$/);
+  if (!match) return null;
+
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  // Prefer the common plain-text convention: "latitude, longitude".
+  // If that cannot be valid but "longitude, latitude" can, accept that too.
+  return validPoint(first, second) ?? validPoint(second, first);
+}
+
 export function findGeoPoint(value: unknown, depth = 0, allowTuple = false): GeoPoint | null {
   if (!value || depth > 8) return null;
   if (typeof value === 'string') {
+    const coordinatePoint = parseCoordinateText(value);
+    if (coordinatePoint) return coordinatePoint;
+
     const trimmed = value.trim();
     if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
     try {
